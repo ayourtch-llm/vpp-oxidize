@@ -8,9 +8,11 @@
 
 pub use vpp_sys as sys;
 
+pub mod api;
 pub mod buffer;
 pub mod cli;
 pub mod feature;
+pub mod init;
 pub mod node;
 pub mod plugin;
 pub mod trace;

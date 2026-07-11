@@ -14,24 +14,46 @@ use latest_vpp_api::interface::{SwInterfaceDetails, SwInterfaceDump};
 use latest_vpp_api::interface::{SwInterfaceSetFlags, SwInterfaceSetFlagsReply};
 use latest_vpp_api::interface_types::IfStatusFlags;
 use latest_vpp_api::vlib::{CliInband, CliInbandReply};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::convert::TryInto;
 use vpp_api_transport::afunix;
 use vpp_api_transport::reqrecv::{send_bulk_msg, send_recv_one};
 use vpp_api_transport::VppApiTransport;
 
+// Re-exported so plugin test crates can define their own message
+// structs (plugin custom APIs) against the same trait/derive versions.
+pub use vpp_api_message::VppApiMessage;
+
 pub struct Api {
     t: Box<dyn VppApiTransport>,
     next_context: u32,
+    // held for the client's lifetime; see Vpp::api
+    _exclusive: std::sync::MutexGuard<'static, ()>,
 }
 
+/// vpp-api-transport's afunix::Transport panics if two instances exist
+/// in one process (a shmem-compat guard), so parallel tests must take
+/// turns holding an Api client.
+static API_CLIENT_SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 impl Vpp {
-    /// Connect a typed binary-API client to this instance.
+    /// Connect a typed binary-API client to this instance. Only one
+    /// `Api` can exist per test process — concurrent tests block here
+    /// until the current holder drops theirs.
     pub fn api(&self, client_name: &str) -> Api {
+        let exclusive = API_CLIENT_SLOT
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut t: Box<dyn VppApiTransport> = Box::new(afunix::Transport::new(
             self.api_sock().to_str().unwrap(),
         ));
         t.connect(client_name, None, 256).expect("api connect failed");
-        Api { t, next_context: 1 }
+        Api {
+            t,
+            next_context: 1,
+            _exclusive: exclusive,
+        }
     }
 }
 
@@ -44,6 +66,20 @@ impl Api {
 
     fn client_index(&self) -> u32 {
         self.t.get_client_index()
+    }
+
+    /// Send any request and wait for its reply — for custom plugin
+    /// messages. The closure gets `(client_index, context)` to embed in
+    /// the request; the reply type is resolved by its own name+CRC.
+    pub fn send_recv<T, R>(&mut self, build: impl FnOnce(u32, u32) -> T) -> R
+    where
+        T: Serialize + DeserializeOwned + VppApiMessage,
+        R: Serialize + DeserializeOwned + VppApiMessage,
+    {
+        let context = self.ctx();
+        let req = build(self.client_index(), context);
+        send_recv_one(&req, &mut *self.t)
+            .unwrap_or_else(|e| panic!("{} failed: {e:?}", T::get_message_name_and_crc()))
     }
 
     /// Run a CLI command over the binary API (cli_inband).

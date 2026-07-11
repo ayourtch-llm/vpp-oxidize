@@ -144,3 +144,120 @@ fn rateguard_perf_smoke() {
     );
     assert_eq!(rt.vectors, 1_000_000);
 }
+
+// ---------------------------------------------------------------------------
+// the plugin's own binary API
+// ---------------------------------------------------------------------------
+
+/// Client-side mirrors of the plugin's API messages. The name+CRC tag
+/// must match what the plugin registers; the fields are serialized
+/// big-endian in declaration order (fixed-width ints only here).
+mod rateguard_api {
+    use serde::{Deserialize, Serialize};
+    use vpp_api_macros::VppMessage;
+    use vpp_api_message::VppApiMessage;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, VppMessage)]
+    #[message_name_and_crc(rateguard_config_v1_00000001)]
+    pub struct Config {
+        pub client_index: u32,
+        pub context: u32,
+        pub rate_pps: u32,
+        pub burst: u32,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, VppMessage)]
+    #[message_name_and_crc(rateguard_config_v1_reply_00000001)]
+    pub struct ConfigReply {
+        pub context: u32,
+        pub retval: i32,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, VppMessage)]
+    #[message_name_and_crc(rateguard_enable_disable_v1_00000001)]
+    pub struct EnableDisable {
+        pub client_index: u32,
+        pub context: u32,
+        pub sw_if_index: u32,
+        pub enable: u8,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, VppMessage)]
+    #[message_name_and_crc(rateguard_enable_disable_v1_reply_00000001)]
+    pub struct EnableDisableReply {
+        pub context: u32,
+        pub retval: i32,
+    }
+}
+
+/// Configure and enable rateguard purely through its binary API, then
+/// verify the datapath actually obeys: the control plane round-trips
+/// AND acts.
+#[test]
+fn plugin_binary_api() {
+    use rateguard_api::*;
+
+    let vpp = setup();
+    let mut api = vpp.api("rateguard-api-test");
+
+    let pg0 = vpp_test::api::mac_string(&api.interface("pg0").expect("pg0").l2_address);
+    assert_eq!(pg0, vpp.mac_of("pg0"));
+
+    let r: ConfigReply = api.send_recv(|client_index, context| Config {
+        client_index,
+        context,
+        rate_pps: 100,
+        burst: 10,
+    });
+    assert_eq!(r.retval, 0, "rateguard_config retval");
+
+    // validation error comes back as a negative retval, not a hang
+    let r: ConfigReply = api.send_recv(|client_index, context| Config {
+        client_index,
+        context,
+        rate_pps: 0,
+        burst: 10,
+    });
+    assert_eq!(r.retval, -1, "rate 0 must be rejected");
+
+    let sw_if_index = api.interface("pg0").unwrap().sw_if_index;
+    let r: EnableDisableReply = api.send_recv(|client_index, context| EnableDisable {
+        client_index,
+        context,
+        sw_if_index,
+        enable: 1,
+    });
+    assert_eq!(r.retval, 0, "rateguard_enable_disable retval");
+
+    // datapath proof: one 100-packet burst -> 10 allowed, 90 dropped
+    let pkt = Ether!(src = "00:0a:0a:0a:0a:0a", dst = vpp.mac_of("pg0").as_str())
+        / IP!(src = "10.0.0.2", dst = "10.0.0.1")
+        / UDP!(sport = 1234, dport = 2345);
+    vpp.pg_stream(Stream::new("api", "pg0", pkt).count(100).rate(1e6));
+    vpp.pg_run();
+
+    let show = vpp.ctl("show rateguard");
+    assert!(
+        show.contains("10 allowed, 90 dropped"),
+        "API-configured rateguard did not act:\n{show}"
+    );
+
+    // disable via API: a second burst passes untouched
+    let r: EnableDisableReply = api.send_recv(|client_index, context| EnableDisable {
+        client_index,
+        context,
+        sw_if_index,
+        enable: 0,
+    });
+    assert_eq!(r.retval, 0);
+    let pkt = Ether!(src = "00:0a:0a:0a:0a:0a", dst = vpp.mac_of("pg0").as_str())
+        / IP!(src = "10.0.0.3", dst = "10.0.0.1")
+        / UDP!(sport = 1234, dport = 2345);
+    vpp.pg_stream(Stream::new("off", "pg0", pkt).count(50).rate(1e6));
+    vpp.pg_run();
+    let show = vpp.ctl("show rateguard");
+    assert!(
+        show.contains("10 allowed, 90 dropped"),
+        "rateguard still active after API disable:\n{show}"
+    );
+}

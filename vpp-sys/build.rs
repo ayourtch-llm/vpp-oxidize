@@ -158,6 +158,12 @@ fn main() {
         .allowlist_function("format_ip4_address")
         .allowlist_function("format_vnet_sw_if_index_name")
         .allowlist_function("_clib_error_return")
+        // binary API (server side): plugin message registration + replies
+        .allowlist_function("vl_msg_api_get_msg_ids")
+        .allowlist_function("vl_msg_api_add_msg_name_crc")
+        .allowlist_function("vl_msg_api_config")
+        .allowlist_function("vl_msg_api_alloc_zero")
+        .allowlist_function("vl_msg_api_free")
         // static inline functions (each becomes a __extern shim; keep this
         // list tight — every shim links against VPP's exported symbols)
         .allowlist_function("vlib_get_buffer")
@@ -171,6 +177,9 @@ fn main() {
         .allowlist_function("unformat_check_input")
         .allowlist_function("vlib_get_global_main")
         .allowlist_function("vlib_get_main")
+        .allowlist_function("vlibapi_get_main")
+        .allowlist_function("vl_api_send_msg")
+        .allowlist_function("vl_api_client_index_to_registration")
         // ---- types ----
         .allowlist_type("vlib_main_t")
         .allowlist_type("vlib_global_main_t")
@@ -189,6 +198,10 @@ fn main() {
         .allowlist_type("ethernet_header_t")
         .allowlist_type("unformat_input_t")
         .allowlist_type("clib_error_t")
+        .allowlist_type("vl_msg_api_msg_config_t")
+        .allowlist_type("vl_api_registration_t")
+        .allowlist_type("vlib_init_function_registration_t")
+        .allowlist_type("_vlib_init_function_list_elt_t")
         // ---- global data ----
         .allowlist_var("vlib_global_main")
         .allowlist_var("feature_main")

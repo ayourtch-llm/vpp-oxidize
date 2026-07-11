@@ -9,6 +9,10 @@
 //!   set rateguard rate <pps> [burst <packets>]
 //!   rateguard interface <ifname> [disable]
 //!   show rateguard
+//!
+//! Binary API (see the `api` module at the bottom):
+//!   rateguard_config          (rate pps, burst packets)
+//!   rateguard_enable_disable  (sw_if_index, enable)
 
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
@@ -275,17 +279,21 @@ unsafe extern "C" fn cli_interface_fn(
     if sw_if_index == !0 {
         return vpp::cli::error(c"please specify an interface");
     }
-    match vpp::feature::enable_disable(c"ip4-unicast", c"rateguard", sw_if_index, enable) {
-        Ok(()) => {
-            let mut en = ENABLED.lock().unwrap();
-            en.retain(|&i| i != sw_if_index);
-            if enable {
-                en.push(sw_if_index);
-            }
-            core::ptr::null_mut()
-        }
+    match set_interface(sw_if_index, enable) {
+        Ok(()) => core::ptr::null_mut(),
         Err(_) => vpp::cli::error(c"feature enable/disable failed"),
     }
+}
+
+/// Enable/disable rateguard on an interface (shared by CLI and API).
+fn set_interface(sw_if_index: u32, enable: bool) -> Result<(), i32> {
+    vpp::feature::enable_disable(c"ip4-unicast", c"rateguard", sw_if_index, enable)?;
+    let mut en = ENABLED.lock().unwrap();
+    en.retain(|&i| i != sw_if_index);
+    if enable {
+        en.push(sw_if_index);
+    }
+    Ok(())
 }
 
 unsafe extern "C" fn cli_show_fn(
@@ -315,4 +323,123 @@ unsafe extern "C" fn cli_show_fn(
         ),
     );
     core::ptr::null_mut()
+}
+
+// ---------------------------------------------------------------------------
+// binary API
+//
+// Hand-written wire structs (no vppapigen): packed, fields big-endian,
+// client_index/context opaque. The "_v1_<stamp>" suffix in the name is
+// the compatibility contract with clients — bump it on any change to a
+// message's layout.
+// ---------------------------------------------------------------------------
+
+mod api {
+    use super::{set_config, set_interface};
+    use core::ffi::c_void;
+    use std::sync::atomic::{AtomicU16, Ordering};
+    use vpp::sys;
+
+    /// First message ID of our range; message index i => FIRST + i.
+    static FIRST: AtomicU16 = AtomicU16::new(0);
+
+    // offsets into the registered range, in registration order
+    const CONFIG_REPLY: u16 = 1;
+    const ENABLE_DISABLE_REPLY: u16 = 3;
+
+    #[repr(C, packed)]
+    struct Config {
+        _vl_msg_id: u16,
+        client_index: u32,
+        context: u32,
+        rate_pps: u32,
+        burst: u32,
+    }
+
+    #[repr(C, packed)]
+    struct ConfigReply {
+        _vl_msg_id: u16,
+        context: u32,
+        retval: i32,
+    }
+
+    #[repr(C, packed)]
+    struct EnableDisable {
+        _vl_msg_id: u16,
+        client_index: u32,
+        context: u32,
+        sw_if_index: u32,
+        enable: u8,
+    }
+
+    #[repr(C, packed)]
+    struct EnableDisableReply {
+        _vl_msg_id: u16,
+        context: u32,
+        retval: i32,
+    }
+
+    unsafe extern "C" fn config_handler(msg: *mut c_void) {
+        let mp = unsafe { &*(msg as *const Config) };
+        let (rate, burst) = (u32::from_be(mp.rate_pps), u32::from_be(mp.burst));
+        let retval: i32 = if rate > 0 && burst >= 1 {
+            set_config(rate as f64, burst as f64);
+            0
+        } else {
+            -1 // VNET_API_ERROR_INVALID_VALUE territory; keep it simple
+        };
+        unsafe {
+            vpp::api::send_reply::<ConfigReply>(
+                mp.client_index,
+                FIRST.load(Ordering::Relaxed) + CONFIG_REPLY,
+                |r| {
+                    r.context = mp.context;
+                    r.retval = retval.to_be();
+                },
+            );
+        }
+    }
+
+    unsafe extern "C" fn enable_disable_handler(msg: *mut c_void) {
+        let mp = unsafe { &*(msg as *const EnableDisable) };
+        let retval = match set_interface(u32::from_be(mp.sw_if_index), mp.enable != 0) {
+            Ok(()) => 0,
+            Err(rv) => rv,
+        };
+        unsafe {
+            vpp::api::send_reply::<EnableDisableReply>(
+                mp.client_index,
+                FIRST.load(Ordering::Relaxed) + ENABLE_DISABLE_REPLY,
+                |r| {
+                    r.context = mp.context;
+                    r.retval = retval.to_be();
+                },
+            );
+        }
+    }
+
+    unsafe extern "C" fn api_init(_vm: *mut sys::vlib_main_t) -> *mut sys::clib_error_t {
+        let first = unsafe {
+            vpp::api::register_messages(
+                c"rateguard_00000001",
+                &[
+                    vpp::api_message!(c"rateguard_config_v1_00000001", Config, config_handler),
+                    vpp::api_message!(c"rateguard_config_v1_reply_00000001", ConfigReply),
+                    vpp::api_message!(
+                        c"rateguard_enable_disable_v1_00000001",
+                        EnableDisable,
+                        enable_disable_handler
+                    ),
+                    vpp::api_message!(
+                        c"rateguard_enable_disable_v1_reply_00000001",
+                        EnableDisableReply
+                    ),
+                ],
+            )
+        };
+        FIRST.store(first, Ordering::Relaxed);
+        core::ptr::null_mut()
+    }
+
+    vpp::define_init! { static API_INIT: c"rateguard_api_init", handler api_init }
 }

@@ -16,3 +16,7 @@ vpp-sys = { path = "../../vpp-sys" }
 [dev-dependencies]
 vpp-test = { path = "../../vpp-test" }
 oside = { path = "../../../oside" }
+# for defining custom plugin API messages in tests
+serde = { version = "1.0", features = ["derive"] }
+vpp-api-macros = { git = "https://github.com/ayourtch/vpp-api", branch = "main" }
+vpp-api-message = { git = "https://github.com/ayourtch/vpp-api", branch = "main" }

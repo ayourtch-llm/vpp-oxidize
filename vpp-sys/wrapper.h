@@ -9,3 +9,5 @@
 #include <vnet/feature/feature.h>
 #include <vnet/ethernet/ethernet.h>
 #include <vnet/ip/ip.h>
+#include <vlibapi/api.h>
+#include <vlibmemory/api.h>
