@@ -93,31 +93,21 @@ jobs:
         run: |
           sudo apt-get install -y libclang-dev clang python3-venv python3-dev
 
-      - name: Rust test suite against packaged VPP
+      # One runner for everything: the Rust suite plus VPP's own python
+      # tests, bridged through vpp_test::python_test! (which drives
+      # `make -C test` against the installed binary — the external-VPP
+      # invocation details and their traps are documented in
+      # vpp-test/src/python.rs).
+      - name: Full suite — Rust tests + bridged python tests
         env:
           VPP_PREFIX: /usr
+          VPP_SRC: ${{ github.workspace }}/vpp
+          VPP_PYTHON_TESTS: "1"
+          VPP_PYTHON_TEST_FILTER: ${{ github.event.inputs.test_filter || 'acl*' }}
         run: |
           cd vpp-oxidize
           cargo build --workspace
           cargo test --workspace -- --nocapture
-
-      # Invocation proven against a local install tree: WS_ROOT/BR/TEST_DIR
-      # are top-level-Makefile exports that a direct `make -C test` does not
-      # get; do NOT pass PYTHON= (an absolute interpreter path bypasses the
-      # venv after activation and breaks the vpp_papi sanity import).
-      - name: VPP Python tests against packaged VPP
-        run: |
-          TRIPLE="$(uname -m)-linux-gnu"
-          WS="$GITHUB_WORKSPACE/vpp"
-          make -C vpp/test test \
-            WS_ROOT="$WS" \
-            BR="$WS/build-root" \
-            TEST_DIR="$WS/test" \
-            TEST="$TEST_FILTER" \
-            TEST_JOBS="$(nproc)" \
-            EXTERN_APIDIR=/usr/share/vpp/api \
-            PLUGIN_PATH_ARGS="--vpp=/usr/bin/vpp --vpp-install-dir=/usr --vpp-plugin-dir=/usr/lib/$TRIPLE/vpp_plugins" \
-            TEST_PLUGIN_PATH_ARGS="--vpp-test-plugin-dir=/usr/lib/$TRIPLE/vpp_api_test_plugins"
 
       - name: Upload test logs on failure
         if: failure()
