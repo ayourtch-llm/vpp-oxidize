@@ -5,8 +5,11 @@ use core::ffi::c_char;
 
 /// Mirror of `vlib_plugin_registration_t` that can be constructed in a
 /// `const` context (the bindgen type has bitfields, which cannot).
-/// Layout is asserted against the bindgen type in tests.
-#[repr(C, align(64))]
+/// The struct is cacheline-aligned in VPP, and the cacheline size is
+/// per-target (aarch64 VPP uses 128-byte lines); layout is asserted
+/// against the bindgen type at compile time below.
+#[cfg_attr(target_arch = "aarch64", repr(C, align(128)))]
+#[cfg_attr(not(target_arch = "aarch64"), repr(C, align(64)))]
 pub struct PluginRegistration {
     /// bit 0: default_disabled, bit 1: deep_bind
     pub flags: u8,
@@ -65,22 +68,20 @@ macro_rules! plugin_register {
     };
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn layout_matches_bindgen() {
-        assert_eq!(
-            core::mem::size_of::<PluginRegistration>(),
-            core::mem::size_of::<vpp_sys::vlib_plugin_registration_t>()
-        );
-        assert_eq!(
-            core::mem::align_of::<PluginRegistration>(),
-            core::mem::align_of::<vpp_sys::vlib_plugin_registration_t>()
-        );
-        assert_eq!(core::mem::offset_of!(PluginRegistration, version), 1);
-        assert_eq!(core::mem::offset_of!(PluginRegistration, version_required), 65);
-        assert_eq!(core::mem::offset_of!(PluginRegistration, overrides), 129);
-    }
-}
+// The loader parses the `.vlib_plugin_registration` section from disk and
+// requires its size to equal sizeof(vlib_plugin_registration_t) exactly, so
+// any drift must fail the build, not a test run.
+const _: () = {
+    assert!(
+        core::mem::size_of::<PluginRegistration>()
+            == core::mem::size_of::<vpp_sys::vlib_plugin_registration_t>()
+    );
+    assert!(
+        core::mem::align_of::<PluginRegistration>()
+            == core::mem::align_of::<vpp_sys::vlib_plugin_registration_t>()
+    );
+    assert!(core::mem::align_of::<PluginRegistration>() == 1 << vpp_sys::CLIB_LOG2_CACHE_LINE_BYTES);
+    assert!(core::mem::offset_of!(PluginRegistration, version) == 1);
+    assert!(core::mem::offset_of!(PluginRegistration, version_required) == 65);
+    assert!(core::mem::offset_of!(PluginRegistration, overrides) == 129);
+};
