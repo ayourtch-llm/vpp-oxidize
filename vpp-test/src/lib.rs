@@ -4,9 +4,12 @@
 //! API sockets), so tests can run in parallel under `cargo test` /
 //! `cargo nextest`. The instance is killed and cleaned up on drop.
 
+pub mod api;
 pub mod perf;
 pub mod pg;
 pub mod python;
+
+pub use latest_vpp_api;
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -138,6 +141,11 @@ impl Vpp {
         } else {
             None
         }
+    }
+
+    /// Path of this instance's binary-API unix socket.
+    pub fn api_sock(&self) -> PathBuf {
+        self.workdir.join("api.sock")
     }
 
     /// Run a CLI command and return its output. Panics on transport failure.

@@ -77,6 +77,33 @@ fn rateguard_independent_sources() {
 }
 
 #[test]
+fn typed_binary_api() {
+    let vpp = Vpp::start(&["rateguard"]);
+    let mut api = vpp.api("vpp-test-e2e");
+
+    // create via cli_inband over the binary API, not vppctl
+    api.cli("create packet-generator interface pg0");
+
+    // typed sw_interface_dump: find pg0, bring it up
+    let pg0 = api.interface("pg0").expect("pg0 not in typed dump");
+    api.set_interface_up(pg0.sw_if_index);
+
+    // the typed MAC must equal what the CLI-parsing helper sees
+    assert_eq!(
+        vpp_test::api::mac_string(&pg0.l2_address),
+        vpp.mac_of("pg0"),
+        "typed dump MAC != CLI-parsed MAC"
+    );
+
+    // admin-up done through the typed call is visible via CLI
+    let show = vpp.ctl("show interface pg0");
+    assert!(show.contains("up"), "pg0 not up:\n{show}");
+
+    let ver = api.cli("show version");
+    assert!(ver.contains("vpp v"), "unexpected version reply: {ver}");
+}
+
+#[test]
 fn rateguard_cli_validation() {
     let vpp = Vpp::start(&["rateguard"]);
     let out = vpp.ctl("set rateguard rate 0");

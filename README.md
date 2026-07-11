@@ -55,6 +55,13 @@ framework:
   `vpp-test::perf`). The rateguard node measures ~106 clocks/pkt at
   256 vectors/call (release plugin, 1M-packet burst, debug VPP).
   Run: `cargo test --release -p rateguard -- --ignored --nocapture`
+- **Typed binary-API client** (`vpp-test::api`, built on
+  [ayourtch/vpp-api](https://github.com/ayourtch/vpp-api) transport +
+  [latest-vpp-api](https://github.com/ayourtch/latest-vpp-api) generated
+  types): message ids are negotiated at connect time by name+CRC, so
+  compatibility is per-message rather than per-release. The `Api`
+  wrapper hides client_index/context/msg-id bookkeeping — tests call
+  `api.interface("pg0")`, `api.set_interface_up(idx)`, `api.cli(...)`.
 - **Python bridge tests** (`vpp_test::python_test!(name, "test_punt")`):
   wrap existing `make test` modules as cargo tests so the legacy suite
   stays in one runner while ports land. Heavyweight, so they only
