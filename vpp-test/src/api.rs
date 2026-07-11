@@ -15,7 +15,6 @@ use latest_vpp_api::interface::{SwInterfaceSetFlags, SwInterfaceSetFlagsReply};
 use latest_vpp_api::interface_types::IfStatusFlags;
 use latest_vpp_api::vlib::{CliInband, CliInbandReply};
 use std::convert::TryInto;
-use vpp_api_message::VppApiMessage;
 use vpp_api_transport::afunix;
 use vpp_api_transport::reqrecv::{send_bulk_msg, send_recv_one};
 use vpp_api_transport::VppApiTransport;
