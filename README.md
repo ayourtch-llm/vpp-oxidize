@@ -37,12 +37,28 @@ make plugins          # cargo build + stage target/plugins/rateguard_plugin.so
 make test             # everything, including e2e tests against a real VPP
 ```
 
-The e2e tests (`plugins/rateguard/tests/e2e.rs`) boot real, isolated VPP
-instances via the `vpp-test` harness crate — each with its own runtime
-dir, CLI/API sockets and api-segment prefix, so they run in parallel
-under plain `cargo test` (or `cargo nextest run`). One test injects a
-100-packet single-source burst through packet-generator and asserts
-exactly burst-size packets pass.
+## Testing (the seed of a Rust test framework)
+
+The `vpp-test` crate boots real, isolated VPP instances — each with its
+own runtime dir, CLI/API sockets and api-segment prefix — so tests run
+in parallel under plain `cargo test` (or `cargo nextest run`). Three
+kinds of tests coexist, enabling incremental migration off the Python
+framework:
+
+- **Pure Rust functional tests** (`plugins/rateguard/tests/e2e.rs`):
+  packets are built with [oside](https://github.com/ayourtch/oside)
+  layer stacks (`Ether!()/IP!()/UDP!()`) and injected via
+  packet-generator; assertions read CLI/counters. The whole rateguard
+  suite (3 tests, each with its own VPP instance) runs in ~1.5 s.
+- **Perf tests**: `#[ignore]`d by default; they reuse VPP's own
+  per-node rdtsc measurement (`show runtime`, parsed into structs by
+  `vpp-test::perf`). The rateguard node measures ~106 clocks/pkt at
+  256 vectors/call (release plugin, 1M-packet burst, debug VPP).
+  Run: `cargo test --release -p rateguard -- --ignored --nocapture`
+- **Python bridge tests** (`vpp_test::python_test!(name, "test_punt")`):
+  wrap existing `make test` modules as cargo tests so the legacy suite
+  stays in one runner while ports land. Heavyweight, so they only
+  execute with `VPP_PYTHON_TESTS=1`; otherwise they log a skip.
 
 Run interactively:
 

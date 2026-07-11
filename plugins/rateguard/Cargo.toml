@@ -15,3 +15,4 @@ vpp-sys = { path = "../../vpp-sys" }
 
 [dev-dependencies]
 vpp-test = { path = "../../vpp-test" }
+oside = { path = "../../../oside" }

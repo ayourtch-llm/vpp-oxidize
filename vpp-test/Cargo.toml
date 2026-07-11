@@ -4,3 +4,6 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 description = "Test harness for driving real VPP instances from Rust tests"
+
+[dependencies]
+oside = { path = "../../oside" }

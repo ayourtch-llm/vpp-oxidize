@@ -4,6 +4,10 @@
 //! API sockets), so tests can run in parallel under `cargo test` /
 //! `cargo nextest`. The instance is killed and cleaned up on drop.
 
+pub mod perf;
+pub mod pg;
+pub mod python;
+
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -35,8 +39,9 @@ pub fn vpp_prefix() -> PathBuf {
 fn stage_plugin(workdir: &Path, name: &str) -> PathBuf {
     let plugdir = workdir.join("plugins");
     std::fs::create_dir_all(&plugdir).unwrap();
+    let profile = if cfg!(debug_assertions) { "debug" } else { "release" };
     let built = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../target/debug/lib{}_plugin.so", name));
+        .join(format!("../target/{}/lib{}_plugin.so", profile, name));
     let dst = plugdir.join(format!("{}_plugin.so", name));
     std::fs::copy(&built, &dst).unwrap_or_else(|e| {
         panic!(
@@ -141,16 +146,14 @@ impl Vpp {
             .unwrap_or_else(|| panic!("vppctl failed for: {}", cmd))
     }
 
-    /// MAC address of an interface, in pg "aabb.ccdd.eeff" format.
+    /// MAC address of an interface ("aa:bb:cc:dd:ee:ff").
     pub fn mac_of(&self, ifname: &str) -> String {
         let hw = self.ctl(&format!("show hardware {}", ifname));
-        let mac = hw
-            .lines()
+        hw.lines()
             .find_map(|l| l.trim().strip_prefix("Ethernet address "))
             .unwrap_or_else(|| panic!("no MAC in: {}", hw))
             .trim()
-            .replace(':', "");
-        format!("{}.{}.{}", &mac[0..4], &mac[4..8], &mac[8..12])
+            .to_string()
     }
 }
 
