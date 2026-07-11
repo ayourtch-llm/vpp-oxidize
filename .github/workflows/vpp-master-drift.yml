@@ -1,0 +1,107 @@
+# Daily drift check: build the latest VPP master, build vpp-oxidize
+# against it, and run the full test suite (real VPP instances).
+#
+# What "deviation" gets caught where:
+#  - struct layout changes  -> vpp-sys fails to COMPILE (bindgen layout
+#    asserts), and debug builds cross-check native accessors against the
+#    C shims per packet at RUN time
+#  - registration/ABI drift -> plugin fails to load in the e2e tests
+#  - behavior drift         -> rateguard e2e assertions fail
+#  - binary API drift       -> typed-API test fails msg-id (name+CRC)
+#    resolution at connect time
+
+name: vpp-master-drift
+
+on:
+  workflow_dispatch:
+    inputs:
+      vpp_ref:
+        description: "VPP ref to test against"
+        required: false
+        default: "master"
+  schedule:
+    # daily, offset from the usual on-the-hour rush
+    - cron: "17 4 * * *"
+
+concurrency:
+  group: vpp-master-drift
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Checkout vpp-oxidize
+        uses: actions/checkout@v4
+        with:
+          path: vpp-oxidize
+
+      # path dependency: vpp-test/oside live side by side
+      - name: Checkout oside
+        uses: actions/checkout@v4
+        with:
+          repository: ayourtch/oside
+          path: oside
+
+      - name: Checkout VPP
+        uses: actions/checkout@v4
+        with:
+          repository: FDio/vpp
+          ref: ${{ github.event.inputs.vpp_ref || 'master' }}
+          path: vpp
+
+      - name: Record VPP version under test
+        run: |
+          cd vpp
+          echo "VPP_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "### VPP under test" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          git log -1 --format='%H%n%ad %s' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install VPP build dependencies
+        run: |
+          sudo apt-get update
+          make -C vpp UNATTENDED=yes install-dep
+          make -C vpp UNATTENDED=yes install-ext-deps
+
+      - name: Build VPP (debug)
+        run: make -C vpp build
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install libclang (bindgen)
+        run: sudo apt-get install -y libclang-dev clang
+
+      - name: Build and test vpp-oxidize against this VPP
+        env:
+          VPP_PREFIX: ${{ github.workspace }}/vpp/build-root/install-vpp_debug-native/vpp
+        run: |
+          export LD_LIBRARY_PATH="$VPP_PREFIX/lib/x86_64-linux-gnu"
+          cd vpp-oxidize
+          cargo build --workspace
+          cargo test --workspace -- --nocapture
+
+      - name: Perf smoke (release plugin, informational)
+        env:
+          VPP_PREFIX: ${{ github.workspace }}/vpp/build-root/install-vpp_debug-native/vpp
+        run: |
+          export LD_LIBRARY_PATH="$VPP_PREFIX/lib/x86_64-linux-gnu"
+          cd vpp-oxidize
+          cargo build --release --workspace
+          cargo test --release -p rateguard --test e2e -- --ignored --nocapture 2>&1 \
+            | tee /tmp/perf.out
+          echo "### Perf smoke" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E 'clocks/pkt' /tmp/perf.out >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload VPP logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpp-test-logs-${{ env.VPP_COMMIT }}
+          path: /tmp/vpptest-*/vpp.log
+          if-no-files-found: ignore
