@@ -1,0 +1,11 @@
+[package]
+name = "vpp-sys"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Raw FFI bindings to VPP (vlib/vnet/vppinfra), generated with bindgen"
+links = "vpp"
+
+[build-dependencies]
+bindgen = "0.71"
+cc = "1"

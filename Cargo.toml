@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "vpp-sys",
+    "vpp",
+    "plugins/rateguard",
+]
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/ayourtch/vpp-oxidize"
+
+[profile.dev]
+# Panics must not unwind across the FFI boundary into VPP.
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+debug = true
