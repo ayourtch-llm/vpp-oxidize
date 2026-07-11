@@ -1,0 +1,130 @@
+# Combined suite against packaged VPP: our Rust tests PLUS VPP's own
+# Python tests (filtered), without ever building VPP.
+#
+# How the pieces stay non-fragile:
+#  - the fd.io master package version embeds the exact git commit
+#    ("26.10-rc0~187-g<sha>"), so the checked-out test framework always
+#    matches the installed binary — no tags, no git-describe
+#  - the Python framework is pointed at the installed VPP through its
+#    own supported knobs: config.py's --vpp / --vpp-install-dir /
+#    --vpp-plugin-dir options (injected via the PLUGIN_PATH_ARGS /
+#    TEST_PLUGIN_PATH_ARGS make hooks, which test/Makefile references
+#    but leaves for the caller) and the EXTERN_APIDIR variable for the
+#    installed .api.json files
+#  - "make -C test test" (not top-level "make test") skips the
+#    vpp-install build step but still builds the test venv itself
+
+name: vpp-python-tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_filter:
+        description: "Python test filter (run_tests --filter syntax)"
+        required: false
+        default: "acl*"
+  schedule:
+    - cron: "47 5 * * *"
+
+concurrency:
+  group: vpp-python-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TEST_FILTER: ${{ github.event.inputs.test_filter || 'acl*' }}
+
+jobs:
+  combined:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - name: Checkout vpp-oxidize
+        uses: actions/checkout@v4
+        with:
+          path: vpp-oxidize
+
+      - name: Checkout oside
+        uses: actions/checkout@v4
+        with:
+          repository: ayourtch/oside
+          path: oside
+
+      - name: Install VPP master packages from packagecloud
+        run: |
+          curl -s https://packagecloud.io/install/repositories/fdio/master/script.deb.sh \
+            | sudo bash
+          sudo apt-get install -y vpp vpp-dev vpp-plugin-core vpp-plugin-devtools \
+            libvppinfra libvppinfra-dev python3-vpp-api
+
+      - name: Derive VPP source commit from the package version
+        id: vppver
+        run: |
+          VER="$(dpkg-query -W -f='${Version}' vpp)"
+          SHA="$(echo "$VER" | sed -n 's/.*-g\([0-9a-f]\{7,\}\).*/\1/p')"
+          if [ -z "$SHA" ]; then
+            echo "cannot extract git sha from package version '$VER'" >&2
+            exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "### VPP under test (${{ matrix.arch }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "package \`$VER\` -> source \`$SHA\`, python filter \`$TEST_FILTER\`" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout matching VPP source (test framework only)
+        uses: actions/checkout@v4
+        with:
+          repository: FDio/vpp
+          ref: ${{ steps.vppver.outputs.sha }}
+          path: vpp
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get install -y libclang-dev clang python3-venv python3-dev
+
+      - name: Rust test suite against packaged VPP
+        env:
+          VPP_PREFIX: /usr
+        run: |
+          cd vpp-oxidize
+          cargo build --workspace
+          cargo test --workspace -- --nocapture
+
+      # Invocation proven against a local install tree: WS_ROOT/BR/TEST_DIR
+      # are top-level-Makefile exports that a direct `make -C test` does not
+      # get; do NOT pass PYTHON= (an absolute interpreter path bypasses the
+      # venv after activation and breaks the vpp_papi sanity import).
+      - name: VPP Python tests against packaged VPP
+        run: |
+          TRIPLE="$(uname -m)-linux-gnu"
+          WS="$GITHUB_WORKSPACE/vpp"
+          make -C vpp/test test \
+            WS_ROOT="$WS" \
+            BR="$WS/build-root" \
+            TEST_DIR="$WS/test" \
+            TEST="$TEST_FILTER" \
+            TEST_JOBS="$(nproc)" \
+            EXTERN_APIDIR=/usr/share/vpp/api \
+            PLUGIN_PATH_ARGS="--vpp=/usr/bin/vpp --vpp-install-dir=/usr --vpp-plugin-dir=/usr/lib/$TRIPLE/vpp_plugins" \
+            TEST_PLUGIN_PATH_ARGS="--vpp-test-plugin-dir=/usr/lib/$TRIPLE/vpp_api_test_plugins"
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.arch }}
+          path: |
+            /tmp/vpp-unittest-*
+            /tmp/vpptest-*/vpp.log
+          if-no-files-found: ignore
