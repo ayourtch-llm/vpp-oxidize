@@ -25,7 +25,7 @@ pub unsafe fn add<T>(
 ///
 /// # Safety
 /// Call exactly once, first thing, in a `format_trace` callback.
-pub unsafe fn format_args<T>(args: *mut sys::__va_list_tag) -> *mut T {
+pub unsafe fn format_args<T>(args: *mut sys::va_list) -> *mut T {
     unsafe {
         let ap = args as *mut c_void;
         let _vm = sys::vppsys_va_arg_ptr(ap);
