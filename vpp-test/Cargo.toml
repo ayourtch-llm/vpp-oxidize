@@ -13,11 +13,3 @@ vpp-api-message = { git = "https://github.com/ayourtch/vpp-api", branch = "main"
 latest_vpp_api = { git = "https://github.com/ayourtch/latest-vpp-api", branch = "main" }
 bincode = "1.2.1"
 serde = { version = "1.0", features = ["derive"] }
-# Pin RustCrypto versions used by oside's SNMP support.  oside leaves some
-# of these unconstrained, which can otherwise resolve to incompatible releases
-# when CI refreshes the dependency graph.
-aes = "0.8.4"
-des = "0.8.1"
-cbc = { version = "0.1.2", features = ["block-padding"] }
-cfb-mode = "0.8.2"
-cipher = { version = "0.4.4", features = ["block-padding"] }
