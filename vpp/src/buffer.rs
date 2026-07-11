@@ -16,8 +16,18 @@ pub struct Buffer(*mut sys::vlib_buffer_t);
 impl Buffer {
     /// # Safety
     /// `bi` must be a valid buffer index owned by the current frame.
+    #[inline]
     pub unsafe fn from_index(vm: *mut sys::vlib_main_t, bi: u32) -> Buffer {
-        Buffer(unsafe { sys::vlib_get_buffer(vm, bi) })
+        // native reimplementation of the vlib_get_buffer() inline:
+        // buffer_mem_start + (bi << log2-cache-line)
+        unsafe {
+            let bm = (*vm).buffer_main;
+            let b = ((*bm).buffer_mem_start
+                + ((bi as sys::uword) << sys::CLIB_LOG2_CACHE_LINE_BYTES))
+                as *mut sys::vlib_buffer_t;
+            debug_assert_eq!(b, sys::vlib_get_buffer(vm, bi));
+            Buffer(b)
+        }
     }
 
     pub fn raw(&self) -> *mut sys::vlib_buffer_t {
@@ -53,7 +63,16 @@ impl Buffer {
     /// # Safety
     /// Caller asserts at least `size_of::<T>()` bytes are present at the
     /// current position (check `current_length` first for parsers).
+    #[inline]
     pub unsafe fn current<T>(&self) -> *mut T {
-        unsafe { sys::vlib_buffer_get_current(self.0) as *mut T }
+        // native reimplementation of vlib_buffer_get_current():
+        // b->data + b->current_data
+        unsafe {
+            let data =
+                (self.0 as *mut u8).add(core::mem::offset_of!(sys::vlib_buffer_t__bindgen_ty_1, data));
+            let p = data.offset((*self.tmpl()).current_data as isize);
+            debug_assert_eq!(p, sys::vlib_buffer_get_current(self.0) as *mut u8);
+            p as *mut T
+        }
     }
 }

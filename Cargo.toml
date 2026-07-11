@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "vpp-sys",
     "vpp",
+    "vpp-test",
     "plugins/rateguard",
 ]
 

@@ -2,7 +2,7 @@
 # names (the cdylib is built as lib<name>_plugin.so; VPP convention is
 # <name>_plugin.so).
 
-VPP_PREFIX ?= $(abspath ../vpp/build-root/install-oxidize/vpp)
+VPP_PREFIX ?= $(abspath ../vpp/build-root/install-vpp_debug-native/vpp)
 LIBDIR := $(VPP_PREFIX)/lib/x86_64-linux-gnu
 STAGE := target/plugins
 

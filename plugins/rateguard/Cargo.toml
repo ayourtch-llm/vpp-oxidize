@@ -12,3 +12,6 @@ crate-type = ["cdylib"]
 [dependencies]
 vpp = { path = "../../vpp" }
 vpp-sys = { path = "../../vpp-sys" }
+
+[dev-dependencies]
+vpp-test = { path = "../../vpp-test" }

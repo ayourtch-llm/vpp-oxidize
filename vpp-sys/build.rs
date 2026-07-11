@@ -18,9 +18,9 @@ fn find_vpp_prefix() -> PathBuf {
         .map(|p| p.join("vpp/build-root"))
         .expect("cannot derive ../vpp/build-root from CARGO_MANIFEST_DIR");
     for cand in [
-        "install-oxidize/vpp",
         "install-vpp_debug-native/vpp",
         "install-vpp-native/vpp",
+        "install-oxidize/vpp",
     ] {
         let p = build_root.join(cand);
         if p.join("include/vlib/vlib.h").exists() {
@@ -169,6 +169,7 @@ fn main() {
         // ---- macro constants ----
         .allowlist_var("VLIB_.*")
         .allowlist_var("VNET_.*")
+        .allowlist_var("CLIB_LOG2_CACHE_LINE_BYTES")
         // ip6_address_t is a packed union with SIMD members; Rust cannot
         // express that (packed + over-aligned fields), so provide a plain
         // 16-byte packed struct with identical layout instead.

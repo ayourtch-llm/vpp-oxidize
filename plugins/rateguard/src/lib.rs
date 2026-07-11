@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use vpp::buffer::Buffer;
-use vpp::node::{frame_vector, tracing_enabled, ErrorDef, NextFrames, NodeCell, Severity};
+use vpp::node::{frame_vector, tracing_enabled, NextFrames};
 use vpp::sys;
 
 vpp::plugin_register! {
@@ -103,7 +103,33 @@ struct Trace {
     dropped: u8,
 }
 
-static NODE: NodeCell<1> = NodeCell::new();
+vpp::define_node! {
+    static NODE: c"rateguard" => {
+        function: rateguard_node_fn,
+        format_trace: Some(format_trace),
+        errors: [
+            (c"dropped", c"rateguard: rate limited", Error),
+            (c"allowed", c"rateguard: allowed", Info),
+        ],
+        next_nodes: [c"error-drop"],
+    }
+}
+
+vpp::define_feature! {
+    static FEATURE: arc c"ip4-unicast", node c"rateguard", runs_before [c"ip4-lookup"]
+}
+
+vpp::define_cli! {
+    static CLI_SET: path c"set rateguard",
+    help c"set rateguard rate <pps> [burst <packets>]", handler cli_set_fn
+}
+vpp::define_cli! {
+    static CLI_IF: path c"rateguard interface",
+    help c"rateguard interface <interface> [disable]", handler cli_interface_fn
+}
+vpp::define_cli! {
+    static CLI_SHOW: path c"show rateguard", help c"show rateguard", handler cli_show_fn
+}
 
 unsafe extern "C" fn rateguard_node_fn(
     vm: *mut sys::vlib_main_t,
@@ -190,62 +216,9 @@ unsafe extern "C" fn format_trace(
     }
 }
 
-static FEATURE: vpp::feature::FeatureCell = vpp::feature::FeatureCell::new();
-
-vpp::ctor!(register_node_and_feature);
-unsafe extern "C" fn register_node_and_feature() {
-    unsafe {
-        vpp::node::register_internal_node(
-            &NODE,
-            c"rateguard",
-            rateguard_node_fn,
-            Some(format_trace),
-            &[
-                ErrorDef(c"dropped", c"rateguard: rate limited", Severity::Error),
-                ErrorDef(c"allowed", c"rateguard: allowed", Severity::Info),
-            ],
-            [c"error-drop"],
-        );
-        vpp::feature::register_feature(
-            &FEATURE,
-            c"ip4-unicast",
-            c"rateguard",
-            &[c"ip4-lookup"],
-        );
-    }
-}
-
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
-
-static CLI_SET: vpp::cli::CliCell = vpp::cli::CliCell::new();
-static CLI_IF: vpp::cli::CliCell = vpp::cli::CliCell::new();
-static CLI_SHOW: vpp::cli::CliCell = vpp::cli::CliCell::new();
-
-vpp::ctor!(register_cli);
-unsafe extern "C" fn register_cli() {
-    unsafe {
-        vpp::cli::register_cli(
-            &CLI_SET,
-            c"set rateguard",
-            c"set rateguard rate <pps> [burst <packets>]",
-            cli_set_fn,
-        );
-        vpp::cli::register_cli(
-            &CLI_IF,
-            c"rateguard interface",
-            c"rateguard interface <interface> [disable]",
-            cli_interface_fn,
-        );
-        vpp::cli::register_cli(
-            &CLI_SHOW,
-            c"show rateguard",
-            c"show rateguard",
-            cli_show_fn,
-        );
-    }
-}
 
 unsafe extern "C" fn cli_set_fn(
     _vm: *mut sys::vlib_main_t,

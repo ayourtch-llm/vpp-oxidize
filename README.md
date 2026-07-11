@@ -34,9 +34,15 @@ override with `VPP_PREFIX`), Rust 1.85+, libclang.
 
 ```
 make plugins          # cargo build + stage target/plugins/rateguard_plugin.so
-make test             # unit/layout tests
-./scripts/e2e-test.sh # boots real VPP, injects 100-pkt burst, asserts 10/90
+make test             # everything, including e2e tests against a real VPP
 ```
+
+The e2e tests (`plugins/rateguard/tests/e2e.rs`) boot real, isolated VPP
+instances via the `vpp-test` harness crate — each with its own runtime
+dir, CLI/API sockets and api-segment prefix, so they run in parallel
+under plain `cargo test` (or `cargo nextest run`). One test injects a
+100-packet single-source burst through packet-generator and asserts
+exactly burst-size packets pass.
 
 Run interactively:
 
@@ -74,8 +80,14 @@ mirror type, layout-asserted against the bindgen struct.
 
 ## Roadmap
 
-- [ ] `#[vpp_node]` proc-macro to shrink node boilerplate
-- [ ] Reimplement hot inline accessors (buffer, feature-next) in Rust
+- [x] Declarative registration macros (`define_node!` / `define_feature!` / `define_cli!`)
+- [x] Native Rust hot-path buffer accessors (debug builds cross-check them
+      against the C shims on every packet)
+- [x] `vpp-test` harness: parallel-safe real-VPP integration tests in cargo
+- [ ] Grow `vpp-test` toward a full `make test` replacement: binary API
+      client (typed .api bindings), packet crafting/parsing, perf and
+      coverage measurement as first-class outputs
+- [ ] `#[vpp_node]` proc-macro (function-to-node, typed next enums)
 - [ ] vec/pool typed views (`VppVec<T>`) over vppinfra layouts
 - [ ] Binary API (.api) handler generation for Rust plugins
 - [ ] Multi-arch node variants (`VLIB_NODE_FN` equivalent)

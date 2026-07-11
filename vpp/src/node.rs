@@ -96,6 +96,100 @@ pub unsafe fn register_internal_node<const N: usize>(
     }
 }
 
+/// Define and register a graph node in one block:
+///
+/// ```ignore
+/// vpp::define_node! {
+///     static NODE: c"rateguard" {
+///         function: rateguard_node_fn,
+///         format_trace: format_trace,
+///         errors: [
+///             (c"dropped", c"rateguard: rate limited", Error),
+///             (c"allowed", c"rateguard: allowed", Info),
+///         ],
+///         next_nodes: [c"error-drop"],
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! define_node {
+    (
+        $vis:vis static $cell:ident: $name:expr => {
+            function: $func:path,
+            format_trace: $ft:expr,
+            errors: [ $( ($ename:expr, $edesc:expr, $esev:ident) ),* $(,)? ],
+            next_nodes: [ $($next:expr),* $(,)? ] $(,)?
+        }
+    ) => {
+        $vis static $cell: $crate::node::NodeCell<{ [$($next),*].len() }> =
+            $crate::node::NodeCell::new();
+        const _: () = {
+            unsafe extern "C" fn __register_node() {
+                unsafe {
+                    $crate::node::register_internal_node(
+                        &$cell,
+                        $name,
+                        $func,
+                        $ft,
+                        &[$( $crate::node::ErrorDef($ename, $edesc, $crate::node::Severity::$esev) ),*],
+                        [$($next),*],
+                    );
+                }
+            }
+            #[used]
+            #[unsafe(link_section = ".init_array")]
+            static CTOR: unsafe extern "C" fn() = __register_node;
+        };
+    };
+}
+
+/// Register a feature-arc entry in one line:
+///
+/// ```ignore
+/// vpp::define_feature! { static FEATURE: arc c"ip4-unicast", node c"rateguard", runs_before [c"ip4-lookup"] }
+/// ```
+#[macro_export]
+macro_rules! define_feature {
+    (
+        $vis:vis static $cell:ident: arc $arc:expr, node $node:expr,
+        runs_before [ $($rb:expr),* $(,)? ] $(,)?
+    ) => {
+        $vis static $cell: $crate::feature::FeatureCell = $crate::feature::FeatureCell::new();
+        const _: () = {
+            unsafe extern "C" fn __register_feature() {
+                unsafe {
+                    $crate::feature::register_feature(&$cell, $arc, $node, &[$($rb),*]);
+                }
+            }
+            #[used]
+            #[unsafe(link_section = ".init_array")]
+            static CTOR: unsafe extern "C" fn() = __register_feature;
+        };
+    };
+}
+
+/// Register a CLI command in one line:
+///
+/// ```ignore
+/// vpp::define_cli! { static CLI_SHOW: path c"show rateguard", help c"show rateguard", handler cli_show_fn }
+/// ```
+#[macro_export]
+macro_rules! define_cli {
+    (
+        $vis:vis static $cell:ident: path $path:expr, help $help:expr, handler $handler:path $(,)?
+    ) => {
+        $vis static $cell: $crate::cli::CliCell = $crate::cli::CliCell::new();
+        const _: () = {
+            unsafe extern "C" fn __register_cli() {
+                unsafe { $crate::cli::register_cli(&$cell, $path, $help, $handler) };
+            }
+            #[used]
+            #[unsafe(link_section = ".init_array")]
+            static CTOR: unsafe extern "C" fn() = __register_cli;
+        };
+    };
+}
+
 /// Buffer indices of the incoming frame.
 ///
 /// # Safety
