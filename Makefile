@@ -3,7 +3,7 @@
 # <name>_plugin.so).
 
 VPP_PREFIX ?= $(abspath ../vpp/build-root/install-vpp_debug-native/vpp)
-LIBDIR := $(VPP_PREFIX)/lib/x86_64-linux-gnu
+LIBDIR := $(VPP_PREFIX)/lib/$(shell uname -m)-linux-gnu
 STAGE := target/plugins
 
 PLUGINS := rateguard

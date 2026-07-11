@@ -1,5 +1,6 @@
-# Daily drift check: build the latest VPP master, build vpp-oxidize
-# against it, and run the full test suite (real VPP instances).
+# Daily drift check: install the latest VPP master packages from
+# packagecloud.io/fdio/master and build + test vpp-oxidize against them,
+# on both x86_64 and aarch64.
 #
 # What "deviation" gets caught where:
 #  - struct layout changes  -> vpp-sys fails to COMPILE (bindgen layout
@@ -14,60 +15,48 @@ name: vpp-master-drift
 
 on:
   workflow_dispatch:
-    inputs:
-      vpp_ref:
-        description: "VPP ref to test against"
-        required: false
-        default: "master"
   schedule:
     # daily, offset from the usual on-the-hour rush
     - cron: "17 4 * * *"
 
 concurrency:
-  group: vpp-master-drift
+  group: vpp-master-drift-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   drift:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     steps:
       - name: Checkout vpp-oxidize
         uses: actions/checkout@v4
         with:
           path: vpp-oxidize
 
-      # path dependency: vpp-test/oside live side by side
+      # path dependency: vpp-test expects oside as a sibling checkout
       - name: Checkout oside
         uses: actions/checkout@v4
         with:
           repository: ayourtch/oside
           path: oside
 
-      - name: Checkout VPP
-        uses: actions/checkout@v4
-        with:
-          repository: FDio/vpp
-          ref: ${{ github.event.inputs.vpp_ref || 'master' }}
-          path: vpp
-
-      - name: Record VPP version under test
+      - name: Install VPP master packages from packagecloud
         run: |
-          cd vpp
-          echo "VPP_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-          echo "### VPP under test" >> "$GITHUB_STEP_SUMMARY"
+          curl -s https://packagecloud.io/install/repositories/fdio/master/script.deb.sh \
+            | sudo bash
+          sudo apt-get install -y vpp vpp-dev vpp-plugin-core libvppinfra libvppinfra-dev
+          echo "### VPP under test (${{ matrix.arch }})" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          git log -1 --format='%H%n%ad %s' >> "$GITHUB_STEP_SUMMARY"
+          dpkg -s vpp | grep -E '^Version' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Install VPP build dependencies
-        run: |
-          sudo apt-get update
-          make -C vpp UNATTENDED=yes install-dep
-          make -C vpp UNATTENDED=yes install-ext-deps
-
-      - name: Build VPP (debug)
-        run: make -C vpp build
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -75,25 +64,23 @@ jobs:
       - name: Install libclang (bindgen)
         run: sudo apt-get install -y libclang-dev clang
 
-      - name: Build and test vpp-oxidize against this VPP
+      - name: Build and test vpp-oxidize against packaged VPP
         env:
-          VPP_PREFIX: ${{ github.workspace }}/vpp/build-root/install-vpp_debug-native/vpp
+          VPP_PREFIX: /usr
         run: |
-          export LD_LIBRARY_PATH="$VPP_PREFIX/lib/x86_64-linux-gnu"
           cd vpp-oxidize
           cargo build --workspace
           cargo test --workspace -- --nocapture
 
       - name: Perf smoke (release plugin, informational)
         env:
-          VPP_PREFIX: ${{ github.workspace }}/vpp/build-root/install-vpp_debug-native/vpp
+          VPP_PREFIX: /usr
         run: |
-          export LD_LIBRARY_PATH="$VPP_PREFIX/lib/x86_64-linux-gnu"
           cd vpp-oxidize
           cargo build --release --workspace
           cargo test --release -p rateguard --test e2e -- --ignored --nocapture 2>&1 \
             | tee /tmp/perf.out
-          echo "### Perf smoke" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Perf smoke (${{ matrix.arch }})" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           grep -E 'clocks/pkt' /tmp/perf.out >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -102,6 +89,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: vpp-test-logs-${{ env.VPP_COMMIT }}
+          name: vpp-test-logs-${{ matrix.arch }}
           path: /tmp/vpptest-*/vpp.log
           if-no-files-found: ignore

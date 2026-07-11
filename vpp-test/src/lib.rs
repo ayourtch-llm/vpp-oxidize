@@ -34,7 +34,28 @@ pub fn vpp_prefix() -> PathBuf {
             return p.canonicalize().unwrap();
         }
     }
+    // system-wide install (e.g. vpp packages from packagecloud)
+    if Path::new("/usr/bin/vpp").exists() {
+        return PathBuf::from("/usr");
+    }
     panic!("no VPP install tree found; set VPP_PREFIX");
+}
+
+/// Directory holding the VPP shared libraries (and vpp_plugins/) under
+/// the prefix — multiarch path differs per architecture.
+pub fn vpp_libdir(prefix: &Path) -> PathBuf {
+    for cand in [
+        "lib/x86_64-linux-gnu",
+        "lib/aarch64-linux-gnu",
+        "lib64",
+        "lib",
+    ] {
+        let d = prefix.join(cand);
+        if d.join("vpp_plugins").exists() || d.join("libvlib.so").exists() {
+            return d;
+        }
+    }
+    panic!("no VPP lib dir under {}", prefix.display());
 }
 
 /// Directory that holds staged Rust plugins (<name>_plugin.so).
@@ -73,10 +94,7 @@ impl Vpp {
         let workdir = PathBuf::from(format!("/tmp/vpptest-{}-{}", std::process::id(), seq));
         std::fs::create_dir_all(&workdir).unwrap();
 
-        let mut plugin_path = format!(
-            "{}/lib/x86_64-linux-gnu/vpp_plugins",
-            prefix.display()
-        );
+        let mut plugin_path = format!("{}/vpp_plugins", vpp_libdir(&prefix).display());
         for p in plugins {
             let dir = stage_plugin(&workdir, p);
             plugin_path = format!("{}:{}", plugin_path, dir.display());

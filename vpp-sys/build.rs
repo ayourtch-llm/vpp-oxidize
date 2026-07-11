@@ -27,10 +27,31 @@ fn find_vpp_prefix() -> PathBuf {
             return p;
         }
     }
+    // system-wide install (e.g. vpp-dev packages from packagecloud)
+    let usr = PathBuf::from("/usr");
+    if usr.join("include/vlib/vlib.h").exists() {
+        return usr;
+    }
     panic!(
-        "no VPP install tree found under {} — build VPP first or set VPP_PREFIX",
+        "no VPP install tree found under {} or /usr — build/install VPP or set VPP_PREFIX",
         build_root.display()
     );
+}
+
+/// Locate the directory holding libvlib.so under the prefix.
+fn find_vpp_libdir(prefix: &std::path::Path) -> PathBuf {
+    for cand in [
+        "lib/x86_64-linux-gnu",
+        "lib/aarch64-linux-gnu",
+        "lib64",
+        "lib",
+    ] {
+        let d = prefix.join(cand);
+        if d.join("libvlib.so").exists() {
+            return d;
+        }
+    }
+    panic!("libvlib.so not found under {}", prefix.display());
 }
 
 /// Remove bindgen's zero-sized placeholder structs (from C forward
@@ -87,14 +108,19 @@ fn strip_placeholder_duplicates(src: &str) -> String {
 fn main() {
     let prefix = find_vpp_prefix();
     let include = prefix.join("include");
-    let libdir = prefix.join("lib/x86_64-linux-gnu");
+    let libdir = find_vpp_libdir(&prefix);
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let wrapper = manifest.join("wrapper.h");
 
     // Must match the -march VPP itself was built with, so that any
-    // SIMD-typed struct members get identical layout.
-    let march = env::var("VPP_MARCH").unwrap_or_else(|_| "x86-64-v2".to_string());
+    // SIMD-typed struct members get identical layout. Defaults follow
+    // VPP's src/cmake/cpu.cmake per-arch baselines.
+    let march_default = match env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+        Ok("aarch64") => "armv8-a+crc",
+        _ => "x86-64-v2",
+    };
+    let march = env::var("VPP_MARCH").unwrap_or_else(|_| march_default.to_string());
 
     println!("cargo:rerun-if-changed=wrapper.h");
     println!("cargo:rerun-if-changed=shim.c");
