@@ -104,11 +104,13 @@ impl Vpp {
         let conf = format!(
             "unix {{ nodaemon cli-listen {cli} runtime-dir {run} }}\n\
              socksvr {{ socket-name {api} }}\n\
+             statseg {{ socket-name {stats} }}\n\
              api-segment {{ prefix vpptest-{pid}-{seq} }}\n\
              plugins {{ path {pp} plugin dpdk_plugin.so {{ disable }} }}\n",
             cli = cli_sock.display(),
             run = workdir.display(),
             api = workdir.join("api.sock").display(),
+            stats = workdir.join("stats.sock").display(),
             pid = std::process::id(),
             pp = plugin_path,
         );
@@ -164,6 +166,11 @@ impl Vpp {
     /// Path of this instance's binary-API unix socket.
     pub fn api_sock(&self) -> PathBuf {
         self.workdir.join("api.sock")
+    }
+
+    /// This instance's socket directory (api.sock + stats.sock live here).
+    pub fn socket_dir(&self) -> &Path {
+        &self.workdir
     }
 
     /// Run a CLI command and return its output. Panics on transport failure.

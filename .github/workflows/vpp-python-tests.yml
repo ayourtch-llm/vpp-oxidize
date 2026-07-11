@@ -20,9 +20,11 @@ on:
   workflow_dispatch:
     inputs:
       test_filter:
-        description: "Python test filter (run_tests --filter syntax)"
+        description: >-
+          Extra python test filter (classic mode; the in-repo attached
+          test list runs regardless). Empty = attached list only.
         required: false
-        default: "acl*"
+        default: ""
   schedule:
     - cron: "47 5 * * *"
 
@@ -31,7 +33,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  TEST_FILTER: ${{ github.event.inputs.test_filter || 'acl*' }}
+  TEST_FILTER: ${{ github.event.inputs.test_filter || '' }}
 
 jobs:
   combined:
@@ -103,7 +105,7 @@ jobs:
           VPP_PREFIX: /usr
           VPP_SRC: ${{ github.workspace }}/vpp
           VPP_PYTHON_TESTS: "1"
-          VPP_PYTHON_TEST_FILTER: ${{ github.event.inputs.test_filter || 'acl*' }}
+          VPP_PYTHON_TEST_FILTER: ${{ github.event.inputs.test_filter || '' }}
         run: |
           cd vpp-oxidize
           cargo build --workspace
