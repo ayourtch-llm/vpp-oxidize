@@ -59,21 +59,36 @@ pub fn vpp_libdir(prefix: &Path) -> PathBuf {
 }
 
 /// Directory that holds staged Rust plugins (<name>_plugin.so).
-/// Copies target/debug/lib<name>_plugin.so into the instance dir.
+/// Copies target/<profile>/lib<name>_plugin.so into the instance dir.
+/// The target dir is derived from the running test executable
+/// (target/<profile>/deps/<test>), so this works from any consumer
+/// workspace, not just vpp-oxidize's own.
 fn stage_plugin(workdir: &Path, name: &str) -> PathBuf {
     let plugdir = workdir.join("plugins");
     std::fs::create_dir_all(&plugdir).unwrap();
+    let so = format!("lib{}_plugin.so", name);
+    let mut candidates = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(profile_dir) = exe.parent().and_then(|deps| deps.parent()) {
+            candidates.push(profile_dir.join(&so));
+        }
+    }
     let profile = if cfg!(debug_assertions) { "debug" } else { "release" };
-    let built = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../target/{}/lib{}_plugin.so", profile, name));
+    candidates.push(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../target/{}/{}", profile, so)),
+    );
+    let built = candidates
+        .iter()
+        .find(|p| p.exists())
+        .unwrap_or_else(|| {
+            panic!(
+                "cannot stage plugin {}: not found at {:?} — build it first (cargo build)",
+                name, candidates
+            )
+        });
     let dst = plugdir.join(format!("{}_plugin.so", name));
-    std::fs::copy(&built, &dst).unwrap_or_else(|e| {
-        panic!(
-            "cannot stage plugin {} ({}): build it first (cargo build)",
-            built.display(),
-            e
-        )
-    });
+    std::fs::copy(built, &dst)
+        .unwrap_or_else(|e| panic!("cannot stage plugin {} ({})", built.display(), e));
     plugdir
 }
 
