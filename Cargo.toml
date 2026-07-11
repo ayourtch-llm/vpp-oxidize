@@ -12,6 +12,14 @@ edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/ayourtch/vpp-oxidize"
 
+# Use the local vpp-api checkout (string accessors + shm feature gate)
+# until those changes land on GitHub; then this section can go.
+[patch."https://github.com/ayourtch/vpp-api"]
+vpp-api-transport = { path = "../vpp-api/vpp-api-transport" }
+vpp-api-message = { path = "../vpp-api/vpp-api-message" }
+vpp-api-encoding = { path = "../vpp-api/vpp-api-encoding" }
+vpp-api-macros = { path = "../vpp-api/vpp-api-macros" }
+
 [profile.dev]
 # Panics must not unwind across the FFI boundary into VPP.
 panic = "abort"

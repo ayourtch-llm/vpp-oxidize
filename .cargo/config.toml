@@ -1,5 +1,0 @@
-# vpp-api-transport's build script links libvppapiclient.so (shm
-# transport). Point it at the VPP install tree; override per-shell if
-# you build against a different tree.
-[env]
-VPP_LIB_DIR = { value = "../vpp/build-root/install-vpp_debug-native/vpp/lib/x86_64-linux-gnu", relative = true }

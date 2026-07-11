@@ -60,7 +60,7 @@ impl Api {
         )
         .expect("cli_inband failed");
         assert_eq!(reply.retval, 0, "cli_inband '{cmd}' retval {}", reply.retval);
-        debug_string(&reply.reply)
+        reply.reply.to_string_lossy()
     }
 
     /// Dump all interfaces.
@@ -84,7 +84,7 @@ impl Api {
     pub fn interface(&mut self, name: &str) -> Option<SwInterfaceDetails> {
         self.interfaces()
             .into_iter()
-            .find(|i| debug_string(&i.interface_name) == name)
+            .find(|i| i.interface_name == name)
     }
 
     /// Set an interface admin-up (typed sw_interface_set_flags).
@@ -103,18 +103,6 @@ impl Api {
         )
         .expect("sw_interface_set_flags failed");
         assert_eq!(reply.retval, 0, "set_flags retval {}", reply.retval);
-    }
-}
-
-/// The encoding crate's string types (VariableSizeString /
-/// FixedSizeString) expose no string accessor yet; their Debug form is
-/// `TypeName: "<text>"`. Extract the quoted text. (Another candidate
-/// for the vpp-api surface rework.)
-fn debug_string<T: std::fmt::Debug>(v: &T) -> String {
-    let dbg = format!("{:?}", v);
-    match (dbg.find('"'), dbg.rfind('"')) {
-        (Some(a), Some(b)) if b > a => dbg[a + 1..b].replace("\\n", "\n"),
-        _ => dbg,
     }
 }
 
