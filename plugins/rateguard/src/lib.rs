@@ -148,12 +148,19 @@ unsafe extern "C" fn rateguard_node_fn(
     let state = per_thread();
     let mut n_dropped: u64 = 0;
 
-    for &bi in from {
+    for (idx, &bi) in from.iter().enumerate() {
+        // prefetch ahead: buffer metadata at +4, packet data at +2
+        // (its metadata was prefetched two iterations ago)
+        if let Some(&pbi) = from.get(idx + 4) {
+            unsafe { Buffer::prefetch_header(vm, pbi) };
+        }
+        if let Some(&pbi) = from.get(idx + 2) {
+            unsafe { Buffer::from_index(vm, pbi) }.prefetch_data();
+        }
         let mut b = unsafe { Buffer::from_index(vm, bi) };
 
         // default: continue along the feature arc
-        let mut next: u32 = 0;
-        unsafe { sys::vnet_feature_next(&mut next, b.raw()) };
+        let mut next: u32 = b.feature_next();
 
         // src address lives at bytes 12..16 of the IPv4 header
         let src = unsafe { (b.current::<u8>() as *const u8).add(12).cast::<u32>().read_unaligned() };
