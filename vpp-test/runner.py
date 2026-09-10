@@ -50,6 +50,28 @@ def classes(suite):
 
 
 suite = unittest.TestLoader().loadTestsFromNames(names)
+# A name that fails to import/resolve comes back as a unittest._FailedTest
+# placeholder whose run() would report the error; surface it here instead,
+# before assign_cores() trips on the placeholder with an AttributeError.
+
+
+def tests(suite):
+    for t in suite:
+        if isinstance(t, unittest.TestSuite):
+            yield from tests(t)
+        else:
+            yield t
+
+
+failed = [t for t in tests(suite) if type(t).__name__ == "_FailedTest"]
+if failed:
+    for t in failed:
+        print(f"runner.py: cannot load {t.id()}:", file=sys.stderr)
+        exc = getattr(t, "_exception", None)
+        if exc is not None:
+            import traceback
+            traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
+    sys.exit(2)
 # what run_tests.py's scheduler would have done: give each class its
 # core allocation (cores = list of [logical siblings]; we treat each
 # logical CPU as its own core)
