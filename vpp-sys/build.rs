@@ -228,7 +228,24 @@ fn main() {
     // plus a zero-sized `_unused: [u8; 0]` placeholder — a name collision.
     // Strip every placeholder whose name also has a real definition.
     let generated = bindings.to_string();
-    let deduped = strip_placeholder_duplicates(&generated);
+    let mut deduped = strip_placeholder_duplicates(&generated);
+
+    // VPP 297bd92f2 (2026-07, "vlib: use dedicated type for buffer template
+    // copies") turned `vlib_buffer_template_t` from a plain struct into a
+    // union { struct { <fields> }; u8x16 as_u8x16[4]; ... }. bindgen then
+    // emits the fields in a nested `vlib_buffer_template_t__bindgen_ty_1`
+    // behind `__BindgenUnionField` accessors. Either way the field struct
+    // sits at offset 0 of the buffer, so expose ONE name for "the struct
+    // that carries the template fields" and let the wrapper crate cast to it.
+    let fields_ty = if deduped.contains("pub struct vlib_buffer_template_t__bindgen_ty_1 {") {
+        "vlib_buffer_template_t__bindgen_ty_1"
+    } else {
+        "vlib_buffer_template_t"
+    };
+    deduped.push_str(&format!(
+        "\n/// The struct holding the vlib_buffer_t metadata fields (layout-dependent, see build.rs).\n\
+         pub type vlib_buffer_template_fields_t = {fields_ty};\n"
+    ));
     std::fs::write(out.join("bindings.rs"), deduped).expect("could not write bindings");
 
     // Compile the generated static-fn wrappers + our va_list shims.

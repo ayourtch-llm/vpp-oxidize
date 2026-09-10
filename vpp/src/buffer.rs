@@ -2,7 +2,9 @@
 //!
 //! `vlib_buffer_template_t` is the first member of the `vlib_buffer_t`
 //! union (asserted by bindgen's layout tests), so metadata access is a
-//! pointer cast.
+//! pointer cast. Since VPP 297bd92f2 the template itself is a union whose
+//! first member is the struct of fields; `vpp-sys` resolves the right
+//! struct type per VPP tree as `vlib_buffer_template_fields_t`.
 
 use crate::sys;
 
@@ -34,8 +36,12 @@ impl Buffer {
         self.0
     }
 
-    fn tmpl(&self) -> *mut sys::vlib_buffer_template_t {
-        // template is at offset 0 of the vlib_buffer_t union
+    fn tmpl(&self) -> *mut sys::vlib_buffer_template_fields_t {
+        // template fields are at offset 0 of the vlib_buffer_t union
+        const _: () = assert!(
+            core::mem::size_of::<sys::vlib_buffer_template_fields_t>() == 64,
+            "vlib_buffer_t template fields must span exactly the first cacheline"
+        );
         self.0.cast()
     }
 

@@ -68,6 +68,8 @@ jobs:
 
       - name: Derive VPP source commit from the package version
         id: vppver
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VER="$(dpkg-query -W -f='${Version}' vpp)"
           SHA="$(echo "$VER" | sed -n 's/.*-g\([0-9a-f]\{7,\}\).*/\1/p')"
@@ -75,10 +77,18 @@ jobs:
             echo "cannot extract git sha from package version '$VER'" >&2
             exit 1
           fi
+          # actions/checkout only fetches a *full* 40-hex sha directly; an
+          # abbreviated one is treated as a branch/tag name and the fetch
+          # fails. Expand it through the API before handing it over.
+          FULL="$(gh api "repos/FDio/vpp/commits/$SHA" --jq .sha)"
+          if [ -z "$FULL" ]; then
+            echo "cannot resolve short sha '$SHA' in FDio/vpp" >&2
+            exit 1
+          fi
           echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "sha=$FULL" >> "$GITHUB_OUTPUT"
           echo "### VPP under test (${{ matrix.arch }})" >> "$GITHUB_STEP_SUMMARY"
-          echo "package \`$VER\` -> source \`$SHA\`, python filter \`$TEST_FILTER\`" \
+          echo "package \`$VER\` -> source \`$FULL\`, python filter \`$TEST_FILTER\`" \
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Checkout matching VPP source (test framework only)
